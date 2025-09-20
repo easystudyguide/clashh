@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash Royale Prototype</title>
+  <title>Clash Royale Prototype - Troops & Damage</title>
   <style>
     body { margin:0; background:#222; color:#fff; text-align:center; font-family:sans-serif; }
     canvas { background:#6fb6ff; display:block; margin:0 auto; border:2px solid #000; }
   </style>
 </head>
 <body>
-  <h2>Clash Royale Prototype (Press 1 = top lane, 2 = bottom lane)</h2>
+  <h2>Clash Royale Prototype (Press 1=Knight, 2=Archer, 3=Giant)</h2>
   <canvas id="gameCanvas" width="960" height="540"></canvas>
   <div>
     <strong>Your Elixir:</strong> <span id="elixirDisplay">5</span>
@@ -26,7 +26,6 @@
       {x: 860, y: 135, hp: 100, side:"enemy", type:"princess"},
       {x: 860, y: 405, hp: 100, side:"enemy", type:"princess"},
       {x: 910, y: 270, hp: 150, side:"enemy", type:"king"},
-
       // player side (blue)
       {x: 100, y: 135, hp: 100, side:"player", type:"princess"},
       {x: 100, y: 405, hp: 100, side:"player", type:"princess"},
@@ -36,29 +35,64 @@
     // --- Units ---
     let units = [];
 
+    const troopTypes = {
+      knight: { hp:40, dmg:2, range:15, speed:1.2, cost:3, color:"blue" },
+      archer: { hp:20, dmg:1.5, range:100, speed:1.0, cost:3, color:"green" },
+      giant:  { hp:120, dmg:4, range:20, speed:0.6, cost:5, color:"orange" }
+    };
+
     class Unit {
-      constructor(x, y, side, lane) {
+      constructor(x, y, side, lane, type) {
         this.x = x;
         this.y = y;
         this.side = side;
         this.lane = lane;
-        this.hp = 30;
-        this.speed = side === "player" ? 1 : -1;
+        this.stats = troopTypes[type];
+        this.hp = this.stats.hp;
+        this.type = type;
       }
       update() {
-        this.x += this.speed;
-        // check tower collision
-        for (let t of towers) {
-          if (t.side !== this.side && Math.abs(this.x - t.x) < 15 && Math.abs(this.y - t.y) < 40) {
-            t.hp -= 0.2; // damage tower
+        // find target
+        let target = null;
+        let minDist = Infinity;
+        for (let u of units) {
+          if (u.side !== this.side) {
+            let dist = Math.hypot(this.x - u.x, this.y - u.y);
+            if (dist < minDist && dist < this.stats.range) {
+              minDist = dist;
+              target = u;
+            }
           }
+        }
+        for (let t of towers) {
+          if (t.side !== this.side) {
+            let dist = Math.hypot(this.x - t.x, this.y - t.y);
+            if (dist < minDist && dist < this.stats.range) {
+              minDist = dist;
+              target = t;
+            }
+          }
+        }
+
+        if (target) {
+          // attack target
+          if (target.hp !== undefined) target.hp -= this.stats.dmg * 0.05; // continuous dmg
+        } else {
+          // move forward
+          this.x += (this.side === "player" ? this.stats.speed : -this.stats.speed);
         }
       }
       draw() {
-        ctx.fillStyle = this.side === "player" ? "blue" : "red";
+        ctx.fillStyle = this.side === "player" ? this.stats.color : "red";
         ctx.beginPath();
         ctx.arc(this.x, this.y, 10, 0, Math.PI*2);
         ctx.fill();
+
+        // health bar
+        ctx.fillStyle = "black";
+        ctx.fillRect(this.x-12, this.y-18, 24, 4);
+        ctx.fillStyle = "lime";
+        ctx.fillRect(this.x-12, this.y-18, 24 * (this.hp/this.stats.hp), 4);
       }
     }
 
@@ -73,22 +107,28 @@
 
     // --- Player Controls ---
     window.addEventListener("keydown", e => {
-      if (e.code === "Digit1" && playerElixir >= 3) {
-        units.push(new Unit(160, 135, "player", "top"));
-        playerElixir -= 3;
+      if (e.code === "Digit1" && playerElixir >= troopTypes.knight.cost) {
+        units.push(new Unit(160, 135, "player", "top", "knight"));
+        playerElixir -= troopTypes.knight.cost;
       }
-      if (e.code === "Digit2" && playerElixir >= 3) {
-        units.push(new Unit(160, 405, "player", "bottom"));
-        playerElixir -= 3;
+      if (e.code === "Digit2" && playerElixir >= troopTypes.archer.cost) {
+        units.push(new Unit(160, 405, "player", "bottom", "archer"));
+        playerElixir -= troopTypes.archer.cost;
+      }
+      if (e.code === "Digit3" && playerElixir >= troopTypes.giant.cost) {
+        units.push(new Unit(160, 270, "player", "middle", "giant"));
+        playerElixir -= troopTypes.giant.cost;
       }
     });
 
     // --- Enemy AI ---
     setInterval(() => {
-      if (enemyElixir >= 3) {
-        let lane = Math.random() > 0.5 ? 135 : 405;
-        units.push(new Unit(800, lane, "enemy", lane === 135 ? "top":"bottom"));
-        enemyElixir -= 3;
+      let troopKeys = Object.keys(troopTypes);
+      let choice = troopKeys[Math.floor(Math.random()*troopKeys.length)];
+      let laneY = Math.random() > 0.5 ? 135 : 405;
+      if (enemyElixir >= troopTypes[choice].cost) {
+        units.push(new Unit(800, laneY, "enemy", laneY === 135 ? "top":"bottom", choice));
+        enemyElixir -= troopTypes[choice].cost;
       }
     }, 3000);
 
@@ -96,7 +136,7 @@
     function gameLoop() {
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
-      // Draw arena lanes
+      // Draw lanes
       ctx.strokeStyle = "white";
       ctx.beginPath();
       ctx.moveTo(0,270);
@@ -105,13 +145,16 @@
 
       // Draw towers
       for (let t of towers) {
-        ctx.fillStyle = t.side === "player" ? "blue" : "red";
-        ctx.fillRect(t.x-20, t.y-40, 40, 80);
-        ctx.fillStyle = "white";
-        ctx.fillText(t.type.toUpperCase()+" "+Math.floor(t.hp), t.x-30, t.y-50);
+        if (t.hp > 0) {
+          ctx.fillStyle = t.side === "player" ? "blue" : "red";
+          ctx.fillRect(t.x-20, t.y-40, 40, 80);
+          ctx.fillStyle = "white";
+          ctx.fillText(t.type+" "+Math.floor(t.hp), t.x-30, t.y-50);
+        }
       }
 
       // Update + draw units
+      units = units.filter(u => u.hp > 0); // remove dead
       for (let u of units) {
         u.update();
         u.draw();
