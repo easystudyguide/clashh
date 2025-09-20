@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash Royale Prototype Fixed</title>
+  <title>Clash Royale Prototype - Mouse Placement</title>
   <style>
     body { margin:0; background:#222; color:#fff; text-align:center; font-family:sans-serif; }
     canvas { background:#6fb6ff; display:block; margin:0 auto; border:2px solid #000; }
@@ -19,7 +19,7 @@
   </style>
 </head>
 <body>
-  <h2>Clash Royale Prototype (Q/W/E/R/T = select card, 1/2/3 = place in lane)</h2>
+  <h2>Clash Royale Prototype (Click to place troops/spells)</h2>
   <canvas id="gameCanvas" width="960" height="540"></canvas>
   <div>
     <strong>Your Elixir:</strong> <span id="elixirDisplay">5</span>
@@ -73,11 +73,11 @@
     }
     drawCards();
 
-    // --- Units Class ---
+    // --- Unit Class ---
     class Unit {
-      constructor(x, y, side, lane, type) {
+      constructor(x, y, side, type) {
         this.x = x; this.y = y;
-        this.side = side; this.lane = lane;
+        this.side = side;
         this.stats = troopTypes[type];
         this.hp = this.stats.hp;
         this.type = type;
@@ -105,19 +105,19 @@
     }
 
     // --- Spells ---
-    function castFireball(laneY) {
+    function castFireball(x,y) {
       if (playerElixir < 4) return;
       playerElixir -= 4;
       ctx.fillStyle = "orange";
-      ctx.beginPath(); ctx.arc(480, laneY, 40, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x,y,40,0,Math.PI*2); ctx.fill();
       [...units, ...towers].forEach(obj => {
-        if (obj.side==="enemy" && Math.hypot(obj.x-480,obj.y-laneY)<60) obj.hp -= 40;
+        if (obj.side==="enemy" && Math.hypot(obj.x-x,obj.y-y)<60) obj.hp -= 40;
       });
     }
-    function castArrows(laneY) {
+    function castArrows(y) {
       if (playerElixir < 3) return;
       playerElixir -= 3;
-      units.forEach(u => { if (u.side==="enemy" && Math.abs(u.y-laneY)<50) u.hp -= 20; });
+      units.forEach(u => { if (u.side==="enemy" && Math.abs(u.y-y)<50) u.hp -= 20; });
     }
 
     // --- Elixir ---
@@ -128,43 +128,38 @@
       elixirDisplay.textContent = playerElixir;
     }, 1000);
 
-    // --- Controls ---
-    window.addEventListener("keydown", e => {
-      if (e.code==="KeyQ") selectedCard="knight";
-      if (e.code==="KeyW") selectedCard="archer";
-      if (e.code==="KeyE") selectedCard="giant";
-      if (e.code==="KeyR") selectedCard="fireball";
-      if (e.code==="KeyT") selectedCard="arrows";
-      drawCards();
+    // --- Mouse placement ---
+    canvas.addEventListener("click", e => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
-      let laneY=null;
-      if (e.code==="Digit1") laneY=135;
-      if (e.code==="Digit2") laneY=270;
-      if (e.code==="Digit3") laneY=405;
-
-      if (laneY!==null) {
-        if (selectedCard==="fireball") castFireball(laneY);
-        else if (selectedCard==="arrows") castArrows(laneY);
-        else {
-          let stats=troopTypes[selectedCard];
-          if (playerElixir>=stats.cost) {
-            units.push(new Unit(160,laneY,"player","lane",selectedCard));
-            playerElixir-=stats.cost;
-          }
+      if (selectedCard==="fireball") castFireball(x,y);
+      else if (selectedCard==="arrows") castArrows(y);
+      else {
+        let stats=troopTypes[selectedCard];
+        if (playerElixir>=stats.cost) {
+          units.push(new Unit(x,y,"player",selectedCard));
+          playerElixir-=stats.cost;
         }
       }
     });
 
-    // --- Enemy AI ---
-    setInterval(() => {
-      let keys=Object.keys(troopTypes);
-      let choice=keys[Math.floor(Math.random()*keys.length)];
-      let laneY=[135,270,405][Math.floor(Math.random()*3)];
+    // --- Enemy AI (less OP) ---
+    function enemySpawn() {
+      if (Math.random() < 0.4) { // 40% chance to skip
+        setTimeout(enemySpawn, 4000+Math.random()*2000);
+        return;
+      }
+      let choice = Math.random() < 0.6 ? "knight" : (Math.random() < 0.8 ? "archer":"giant");
+      let y = [135,270,405][Math.floor(Math.random()*3)];
       if (enemyElixir>=troopTypes[choice].cost) {
-        units.push(new Unit(800,laneY,"enemy","lane",choice));
+        units.push(new Unit(800,y,"enemy",choice));
         enemyElixir-=troopTypes[choice].cost;
       }
-    }, 3000);
+      setTimeout(enemySpawn, 4000+Math.random()*2000);
+    }
+    enemySpawn();
 
     // --- Game Loop ---
     function gameLoop() {
