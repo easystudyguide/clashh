@@ -2,25 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash Royale Prototype - Cards & Spells</title>
+  <title>Clash Royale Prototype Fixed</title>
   <style>
     body { margin:0; background:#222; color:#fff; text-align:center; font-family:sans-serif; }
     canvas { background:#6fb6ff; display:block; margin:0 auto; border:2px solid #000; }
+    #ui {
+      position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+      display:flex; gap:10px;
+    }
+    .card {
+      width:80px; height:100px; background:#444; border:2px solid #999;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      font-size:14px; cursor:pointer;
+    }
+    .selected { border-color:yellow; }
   </style>
 </head>
 <body>
   <h2>Clash Royale Prototype (Q/W/E/R/T = select card, 1/2/3 = place in lane)</h2>
   <canvas id="gameCanvas" width="960" height="540"></canvas>
   <div>
-    <strong>Your Elixir:</strong> <span id="elixirDisplay">5</span><br>
-    <strong>Selected Card:</strong> <span id="selectedCard">Knight</span>
+    <strong>Your Elixir:</strong> <span id="elixirDisplay">5</span>
   </div>
+  <div id="ui"></div>
 
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const elixirDisplay = document.getElementById("elixirDisplay");
-    const selectedCardDisplay = document.getElementById("selectedCard");
+    const ui = document.getElementById("ui");
 
     // --- Towers ---
     let towers = [
@@ -41,128 +51,105 @@
       giant:  { hp:120, dmg:4, range:20, speed:0.6, cost:5, color:"orange" }
     };
 
+    // --- Cards ---
+    const cards = [
+      {id:"knight", label:"Knight (3)"},
+      {id:"archer", label:"Archer (3)"},
+      {id:"giant", label:"Giant (5)"},
+      {id:"fireball", label:"Fireball (4)"},
+      {id:"arrows", label:"Arrows (3)"}
+    ];
+    let selectedCard = "knight";
+
+    function drawCards() {
+      ui.innerHTML = "";
+      for (let c of cards) {
+        let div = document.createElement("div");
+        div.className = "card" + (c.id === selectedCard ? " selected":"");
+        div.textContent = c.label;
+        div.onclick = () => { selectedCard = c.id; drawCards(); };
+        ui.appendChild(div);
+      }
+    }
+    drawCards();
+
+    // --- Units Class ---
     class Unit {
       constructor(x, y, side, lane, type) {
-        this.x = x;
-        this.y = y;
-        this.side = side;
-        this.lane = lane;
+        this.x = x; this.y = y;
+        this.side = side; this.lane = lane;
         this.stats = troopTypes[type];
         this.hp = this.stats.hp;
         this.type = type;
       }
       update() {
-        // find target
-        let target = null;
-        let minDist = Infinity;
-        for (let u of units) {
-          if (u.side !== this.side) {
-            let dist = Math.hypot(this.x - u.x, this.y - u.y);
+        // attack closest enemy
+        let target = null, minDist = Infinity;
+        [...units, ...towers].forEach(obj => {
+          if (obj.side !== this.side && obj.hp > 0) {
+            let dist = Math.hypot(this.x - obj.x, this.y - obj.y);
             if (dist < minDist && dist < this.stats.range) {
-              minDist = dist;
-              target = u;
+              minDist = dist; target = obj;
             }
           }
-        }
-        for (let t of towers) {
-          if (t.side !== this.side) {
-            let dist = Math.hypot(this.x - t.x, this.y - t.y);
-            if (dist < minDist && dist < this.stats.range) {
-              minDist = dist;
-              target = t;
-            }
-          }
-        }
-
-        if (target) {
-          if (target.hp !== undefined) target.hp -= this.stats.dmg * 0.05;
-        } else {
-          this.x += (this.side === "player" ? this.stats.speed : -this.stats.speed);
-        }
+        });
+        if (target) target.hp -= this.stats.dmg * 0.05;
+        else this.x += (this.side === "player" ? this.stats.speed : -this.stats.speed);
       }
       draw() {
         ctx.fillStyle = this.side === "player" ? this.stats.color : "red";
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, 10, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = "black";
-        ctx.fillRect(this.x-12, this.y-18, 24, 4);
-        ctx.fillStyle = "lime";
-        ctx.fillRect(this.x-12, this.y-18, 24 * (this.hp/this.stats.hp), 4);
+        ctx.beginPath(); ctx.arc(this.x, this.y, 10, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "black"; ctx.fillRect(this.x-12, this.y-18, 24, 4);
+        ctx.fillStyle = "lime"; ctx.fillRect(this.x-12, this.y-18, 24*(this.hp/this.stats.hp), 4);
       }
     }
 
+    // --- Spells ---
+    function castFireball(laneY) {
+      if (playerElixir < 4) return;
+      playerElixir -= 4;
+      ctx.fillStyle = "orange";
+      ctx.beginPath(); ctx.arc(480, laneY, 40, 0, Math.PI*2); ctx.fill();
+      [...units, ...towers].forEach(obj => {
+        if (obj.side==="enemy" && Math.hypot(obj.x-480,obj.y-laneY)<60) obj.hp -= 40;
+      });
+    }
+    function castArrows(laneY) {
+      if (playerElixir < 3) return;
+      playerElixir -= 3;
+      units.forEach(u => { if (u.side==="enemy" && Math.abs(u.y-laneY)<50) u.hp -= 20; });
+    }
+
     // --- Elixir ---
-    let playerElixir = 5;
-    let enemyElixir = 5;
+    let playerElixir = 5, enemyElixir = 5;
     setInterval(() => {
       if (playerElixir < 10) playerElixir++;
       if (enemyElixir < 10) enemyElixir++;
       elixirDisplay.textContent = playerElixir;
     }, 1000);
 
-    // --- Cards ---
-    let selectedCard = "knight";
-    const cards = ["knight", "archer", "giant", "fireball", "arrows"];
-
-    function castFireball(laneY) {
-      if (playerElixir < 4) return;
-      playerElixir -= 4;
-      // Big explosion
-      ctx.fillStyle = "orange";
-      ctx.beginPath();
-      ctx.arc(480, laneY, 40, 0, Math.PI*2);
-      ctx.fill();
-      // Damage everything in blast
-      for (let u of units) {
-        if (Math.hypot(u.x-480, u.y-laneY) < 60 && u.side==="enemy") {
-          u.hp -= 50;
-        }
-      }
-      for (let t of towers) {
-        if (Math.hypot(t.x-480, t.y-laneY) < 60 && t.side==="enemy") {
-          t.hp -= 30;
-        }
-      }
-    }
-
-    function castArrows(laneY) {
-      if (playerElixir < 3) return;
-      playerElixir -= 3;
-      // Damage all enemy troops in lane
-      for (let u of units) {
-        if (Math.abs(u.y - laneY) < 50 && u.side==="enemy") {
-          u.hp -= 20;
-        }
-      }
-    }
-
     // --- Controls ---
     window.addEventListener("keydown", e => {
-      // select card
-      if (e.code === "KeyQ") selectedCard = "knight";
-      if (e.code === "KeyW") selectedCard = "archer";
-      if (e.code === "KeyE") selectedCard = "giant";
-      if (e.code === "KeyR") selectedCard = "fireball";
-      if (e.code === "KeyT") selectedCard = "arrows";
-      selectedCardDisplay.textContent = selectedCard;
+      if (e.code==="KeyQ") selectedCard="knight";
+      if (e.code==="KeyW") selectedCard="archer";
+      if (e.code==="KeyE") selectedCard="giant";
+      if (e.code==="KeyR") selectedCard="fireball";
+      if (e.code==="KeyT") selectedCard="arrows";
+      drawCards();
 
-      // place card in lane
-      let laneY = null;
-      if (e.code === "Digit1") laneY = 135;
-      if (e.code === "Digit2") laneY = 270;
-      if (e.code === "Digit3") laneY = 405;
+      let laneY=null;
+      if (e.code==="Digit1") laneY=135;
+      if (e.code==="Digit2") laneY=270;
+      if (e.code==="Digit3") laneY=405;
 
-      if (laneY !== null) {
-        if (selectedCard === "fireball") {
-          castFireball(laneY);
-        } else if (selectedCard === "arrows") {
-          castArrows(laneY);
-        } else {
-          let stats = troopTypes[selectedCard];
-          if (playerElixir >= stats.cost) {
-            units.push(new Unit(160, laneY, "player", "lane", selectedCard));
-            playerElixir -= stats.cost;
+      if (laneY!==null) {
+        if (selectedCard==="fireball") castFireball(laneY);
+        else if (selectedCard==="arrows") castArrows(laneY);
+        else {
+          let stats=troopTypes[selectedCard];
+          if (playerElixir>=stats.cost) {
+            units.push(new Unit(160,laneY,"player","lane",selectedCard));
+            playerElixir-=stats.cost;
           }
         }
       }
@@ -170,12 +157,12 @@
 
     // --- Enemy AI ---
     setInterval(() => {
-      let troopKeys = Object.keys(troopTypes);
-      let choice = troopKeys[Math.floor(Math.random()*troopKeys.length)];
-      let laneY = [135,270,405][Math.floor(Math.random()*3)];
-      if (enemyElixir >= troopTypes[choice].cost) {
-        units.push(new Unit(800, laneY, "enemy", "lane", choice));
-        enemyElixir -= troopTypes[choice].cost;
+      let keys=Object.keys(troopTypes);
+      let choice=keys[Math.floor(Math.random()*keys.length)];
+      let laneY=[135,270,405][Math.floor(Math.random()*3)];
+      if (enemyElixir>=troopTypes[choice].cost) {
+        units.push(new Unit(800,laneY,"enemy","lane",choice));
+        enemyElixir-=troopTypes[choice].cost;
       }
     }, 3000);
 
@@ -183,36 +170,34 @@
     function gameLoop() {
       ctx.clearRect(0,0,canvas.width,canvas.height);
 
-      // Lanes
-      ctx.strokeStyle = "white";
-      ctx.beginPath();
-      ctx.moveTo(0,180); ctx.lineTo(960,180);
-      ctx.moveTo(0,360); ctx.lineTo(960,360);
-      ctx.stroke();
+      // lanes
+      ctx.strokeStyle="white";
+      ctx.beginPath(); ctx.moveTo(0,180); ctx.lineTo(960,180);
+      ctx.moveTo(0,360); ctx.lineTo(960,360); ctx.stroke();
 
-      // Towers
+      // towers
       for (let t of towers) {
-        if (t.hp > 0) {
-          ctx.fillStyle = t.side === "player" ? "blue" : "red";
-          ctx.fillRect(t.x-20, t.y-40, 40, 80);
-          ctx.fillStyle = "white";
-          ctx.fillText(t.type+" "+Math.floor(t.hp), t.x-30, t.y-50);
+        if (t.hp>0) {
+          ctx.fillStyle=t.side==="player"?"blue":"red";
+          ctx.fillRect(t.x-20,t.y-40,40,80);
+          ctx.fillStyle="white";
+          ctx.fillText(t.type+" "+Math.floor(t.hp),t.x-30,t.y-50);
         }
       }
 
-      // Units
-      units = units.filter(u => u.hp > 0);
-      for (let u of units) {
-        u.update();
-        u.draw();
-      }
+      // units
+      units=units.filter(u=>u.hp>0);
+      units.forEach(u=>{u.update();u.draw();});
 
-      // Win/Lose
-      let enemyKing = towers.find(t => t.side==="enemy" && t.type==="king");
-      let playerKing = towers.find(t => t.side==="player" && t.type==="king");
-      if (enemyKing.hp <= 0) {
-        ctx.fillStyle = "yellow"; ctx.font = "48px sans-serif";
-        ctx.fillText("YOU WIN!", 360, 100); return;
-      }
-      if (playerKing.hp <= 0) {
-        ctx.fillStyle = "yellow"; ctx.font =
+      // check win/lose
+      let enemyKing=towers.find(t=>t.side==="enemy"&&t.type==="king");
+      let playerKing=towers.find(t=>t.side==="player"&&t.type==="king");
+      if (enemyKing.hp<=0) { ctx.fillStyle="yellow"; ctx.font="48px sans-serif"; ctx.fillText("YOU WIN!",360,100); return; }
+      if (playerKing.hp<=0) { ctx.fillStyle="yellow"; ctx.font="48px sans-serif"; ctx.fillText("YOU LOSE!",360,100); return; }
+
+      requestAnimationFrame(gameLoop);
+    }
+    gameLoop();
+  </script>
+</body>
+</html>
